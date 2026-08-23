@@ -238,10 +238,9 @@ func (s *webResponsesStream) HostedSearch(call hostedSearchCall) error {
 	}); err != nil {
 		return err
 	}
+	// Grok Web can use X search to satisfy the client's declared web_search
+	// tool. Keep the stream on the standard Responses event surface.
 	eventType := "response.web_search_call.completed"
-	if call.Kind == "x_search" {
-		eventType = "response.x_search_call.completed"
-	}
 	if err := writeSSE(s.writer, eventType, map[string]any{
 		"type": eventType, "response_id": s.responseID, "output_index": index, "item_id": call.ID,
 	}); err != nil {

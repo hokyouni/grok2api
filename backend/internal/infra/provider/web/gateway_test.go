@@ -191,8 +191,12 @@ func TestParseGatewayChunkCollectsToolResultsAndRenderCitations(t *testing.T) {
 	if out[0].(map[string]any)["type"] != "web_search_call" {
 		t.Fatalf("first output item = %#v", out[0])
 	}
-	if out[1].(map[string]any)["type"] != "x_search_call" {
+	if out[1].(map[string]any)["type"] != "web_search_call" {
 		t.Fatalf("second output item = %#v", out[1])
+	}
+	xAction := out[1].(map[string]any)["action"].(map[string]any)
+	if xAction["query"] != "from:elonmusk" {
+		t.Fatalf("X search query was not preserved: %#v", xAction)
 	}
 	webAction := out[0].(map[string]any)["action"].(map[string]any)
 	if webAction["type"] != "search" || webAction["query"] == nil {
@@ -371,6 +375,30 @@ func TestXAIHostedWebSearchAlwaysIncludesRequiredQuery(t *testing.T) {
 	}
 }
 
+func TestXAIHostedXSearchUsesStandardResponsesVariant(t *testing.T) {
+	items := xaiHostedSearchOutputItems(parsedChat{HostedSearchCalls: []hostedSearchCall{{
+		ID: "x-search", Kind: "x_search", Query: "from:elonmusk", Status: "completed",
+		Sources: []map[string]any{{"type": "url", "url": "https://x.com/elonmusk/status/1"}},
+	}}})
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	item := items[0].(map[string]any)
+	if item["type"] != "web_search_call" {
+		t.Fatalf("output item must remain OpenAI-compatible: %#v", item)
+	}
+	action := item["action"].(map[string]any)
+	if action["query"] != "from:elonmusk" || action["sources"] == nil {
+		t.Fatalf("X search details were lost: %#v", action)
+	}
+	usage := xaiServerSideToolUsage(parsedChat{HostedSearchCalls: []hostedSearchCall{{
+		ID: "x-search", Kind: "x_search", Status: "completed",
+	}}})
+	if usage["SERVER_SIDE_TOOL_X_SEARCH"] != int64(1) {
+		t.Fatalf("X search usage must remain distinguishable: %#v", usage)
+	}
+}
+
 func TestXAICitationsUnionSearchResultsAndRenderedSources(t *testing.T) {
 	parsed := parsedChat{
 		SearchSources: []map[string]any{{"url": "https://example.com/from-result"}},
@@ -468,7 +496,7 @@ func TestResponsesStreamUsesOneStableOutputSequence(t *testing.T) {
 	if err := stream.Delta("reasoning", "thinking"); err != nil {
 		t.Fatal(err)
 	}
-	if err := stream.HostedSearch(hostedSearchCall{ID: "search_1", Kind: "web_search", Status: "completed"}); err != nil {
+	if err := stream.HostedSearch(hostedSearchCall{ID: "search_1", Kind: "x_search", Status: "completed"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := stream.Delta("text", "hello"); err != nil {
@@ -512,6 +540,9 @@ func TestResponsesStreamUsesOneStableOutputSequence(t *testing.T) {
 		}
 	}
 	out := buf.String()
+	if strings.Contains(out, "x_search_call") || strings.Contains(out, "response.x_search_call.completed") {
+		t.Fatalf("stream leaked the unsupported x_search_call variant: %s", out)
+	}
 	addedIDs := make(map[int]string, len(wantTypes))
 	doneIDs := make(map[int]string, len(wantTypes))
 	for _, event := range decodeSSEPayloads(t, out) {

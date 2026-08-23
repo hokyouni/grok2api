@@ -1723,7 +1723,11 @@ func hostedSearchActionSources(sources []map[string]any) []map[string]any {
 	return out
 }
 
-// xaiHostedSearchOutputItems builds Responses output items: web_search_call / x_search_call.
+// xaiHostedSearchOutputItems builds standard Responses web_search_call items.
+// Grok Web may choose X search internally while fulfilling a declared
+// web_search tool. Keep that implementation detail in server_side_tool_usage;
+// exposing x_search_call here breaks OpenAI Responses clients that never
+// declared (and cannot deserialize) the xAI-only output variant.
 func xaiHostedSearchOutputItems(parsed parsedChat) []any {
 	if len(parsed.HostedSearchCalls) == 0 {
 		return nil
@@ -1732,10 +1736,6 @@ func xaiHostedSearchOutputItems(parsed parsedChat) []any {
 	for _, call := range parsed.HostedSearchCalls {
 		if call.Status != "completed" && len(call.Sources) == 0 {
 			continue
-		}
-		typeName := "web_search_call"
-		if call.Kind == "x_search" {
-			typeName = "x_search_call"
 		}
 		status := call.Status
 		if status == "" {
@@ -1750,7 +1750,7 @@ func xaiHostedSearchOutputItems(parsed parsedChat) []any {
 			action["sources"] = hostedSearchActionSources(call.Sources)
 		}
 		items = append(items, map[string]any{
-			"id": call.ID, "type": typeName, "status": status, "action": action,
+			"id": call.ID, "type": "web_search_call", "status": status, "action": action,
 		})
 	}
 	return items
@@ -1870,7 +1870,7 @@ func buildOpenAIResult(operation, responseID, model string, parsed parsedChat, s
 		if parsed.Reasoning.Len() > 0 {
 			output = append(output, map[string]any{"id": newWebID("rs"), "type": "reasoning", "status": "completed", "summary": []any{map[string]any{"type": "summary_text", "text": parsed.Reasoning.String()}}})
 		}
-		// xAI Tool Usage Details: web_search_call / x_search_call precede the assistant message.
+		// Search details precede the assistant message as standard web_search_call items.
 		output = append(output, xaiHostedSearchOutputItems(parsed)...)
 		if parsed.Text.Len() > 0 || len(parsed.ToolCalls) == 0 {
 			annotations := responsesAnnotations(parsed.Annotations)
