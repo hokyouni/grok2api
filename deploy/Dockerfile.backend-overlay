@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=ghcr.io/chenyme/grok2api:latest
+FROM ${BASE_IMAGE}
+
+ARG TARGETARCH
+COPY grok2api-linux-${TARGETARCH} /app/grok2api
+
+RUN chmod 0755 /app/grok2api
