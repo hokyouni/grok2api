@@ -15,6 +15,7 @@ func normalizeResponsesTools(payload map[string]json.RawMessage) (*responsesTool
 	if hasTools {
 		compatibility.visibleTools = cloneJSONArray(tools)
 	}
+	compatibility.grokShellWebSearch = isGrokShellWebSearchSurface(tools)
 	clientSearch, err := inspectToolSearch(tools)
 	if err != nil {
 		return nil, err
@@ -250,6 +251,9 @@ func (c *responsesToolCompatibility) normalizeTool(raw any, namespace string, cl
 	case "custom":
 		return c.normalizeCustomTool(tool, namespace, param)
 	case "web_search", "web_search_preview", "web_search_preview_2025_03_11", "web_search_2025_08_26":
+		if c.grokShellWebSearch && kind == "web_search" && len(tool) == 1 {
+			return c.normalizeGrokShellWebSearchTool()
+		}
 		return c.normalizeWebSearchTool(tool, kind, param)
 	case "mcp":
 		return c.normalizeMCPTool(tool, clientSearch, force, param)
@@ -271,6 +275,60 @@ func (c *responsesToolCompatibility) normalizeTool(raw any, namespace string, cl
 		}
 		return nil, unsupportedBuildToolError(kind, param)
 	}
+}
+
+// isGrokShellWebSearchSurface recognizes the native tool surface emitted by
+// Grok CLI when backend search is enabled. Build currently ignores the hosted
+// web_search declaration and tends to call the MCP discovery wrappers instead.
+// Keep the fingerprint narrow so normal OpenAI Responses clients retain native
+// hosted-search semantics.
+func isGrokShellWebSearchSurface(tools []any) bool {
+	hasSearchTool := false
+	hasUseTool := false
+	hasMinimalWebSearch := false
+	hasFunctionWebSearch := false
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(stringField(tool, "type")) {
+		case "function":
+			switch strings.TrimSpace(stringField(tool, "name")) {
+			case "search_tool":
+				hasSearchTool = true
+			case "use_tool":
+				hasUseTool = true
+			case "web_search":
+				hasFunctionWebSearch = true
+			}
+		case "web_search":
+			hasMinimalWebSearch = len(tool) == 1
+		}
+	}
+	return hasSearchTool && hasUseTool && hasMinimalWebSearch && !hasFunctionWebSearch
+}
+
+func (c *responsesToolCompatibility) normalizeGrokShellWebSearchTool() ([]any, error) {
+	tool := map[string]any{
+		"type":        "function",
+		"name":        "web_search",
+		"description": "Search the public web for current information. Call this tool directly; do not look it up with search_tool or invoke it through use_tool.",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "The web search query.",
+				},
+			},
+			"required":             []any{"query"},
+			"additionalProperties": false,
+		},
+	}
+	c.changed = true
+	c.addWarning("grok_shell_web_search_client_fallback")
+	return c.normalizeTool(tool, "", false, false, "tools.web_search")
 }
 
 // normalizeBuildFunctionParametersRoot removes root-level nullability from function schemas.

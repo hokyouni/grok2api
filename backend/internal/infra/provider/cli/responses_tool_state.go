@@ -48,6 +48,7 @@ type responsesToolCompatibility struct {
 	streamSequenceSet   bool
 	legacyLocalShell    bool
 	nativeShell         bool
+	grokShellWebSearch  bool
 	webSearchDisabled   bool
 	compactionRequested bool
 	warnings            []string

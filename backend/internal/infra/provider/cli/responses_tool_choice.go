@@ -87,6 +87,16 @@ func (c *responsesToolCompatibility) normalizeToolChoice(payload map[string]json
 		return nil
 	}
 	if normalizedKind := normalizeHostedToolChoiceKind(kind); normalizedKind != "" {
+		if c.grokShellWebSearch && normalizedKind == "web_search" {
+			identity := responsesToolIdentity{Kind: responsesFunctionTool, Name: "web_search"}
+			alias, exists := c.identityAliases[identity.key()]
+			if !exists {
+				return &responsesRequestError{Message: "tool_choice 引用了未声明的 hosted tool", Param: "tool_choice", Code: "invalid_parameter"}
+			}
+			payload["tool_choice"] = mustJSON(map[string]any{"type": "function", "name": alias})
+			c.changed = true
+			return nil
+		}
 		matching := toolsOfType(normalizedTools, normalizedKind)
 		if len(matching) == 0 {
 			return &responsesRequestError{Message: "tool_choice 引用了未声明的 hosted tool", Param: "tool_choice", Code: "invalid_parameter"}
