@@ -356,6 +356,21 @@ func TestXAIToolUsageCountsCompletedGatewayCallsOnly(t *testing.T) {
 	}
 }
 
+func TestXAIHostedWebSearchAlwaysIncludesRequiredQuery(t *testing.T) {
+	items := xaiHostedSearchOutputItems(parsedChat{HostedSearchCalls: []hostedSearchCall{{
+		ID: "result-only", Kind: "web_search", Status: "completed",
+		Sources: []map[string]any{{"type": "url", "url": "https://example.com"}},
+	}}})
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	action := items[0].(map[string]any)["action"].(map[string]any)
+	query, exists := action["query"]
+	if !exists || query != "" {
+		t.Fatalf("search action query = %#v, exists=%v", query, exists)
+	}
+}
+
 func TestXAICitationsUnionSearchResultsAndRenderedSources(t *testing.T) {
 	parsed := parsedChat{
 		SearchSources: []map[string]any{{"url": "https://example.com/from-result"}},

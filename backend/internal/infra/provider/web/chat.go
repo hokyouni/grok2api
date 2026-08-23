@@ -1741,10 +1741,10 @@ func xaiHostedSearchOutputItems(parsed parsedChat) []any {
 		if status == "" {
 			status = "completed"
 		}
-		action := map[string]any{"type": "search"}
-		if call.Query != "" {
-			action["query"] = call.Query
-		}
+		// Responses clients deserialize search actions against a schema where
+		// query is required. Gateway result-only frames can omit it, so preserve
+		// that absence as an empty string instead of emitting invalid JSON.
+		action := map[string]any{"type": "search", "query": call.Query}
 		if len(call.Sources) > 0 {
 			// OpenAPI: sources[] requires type:"url"+url; title kept as optional extension.
 			action["sources"] = hostedSearchActionSources(call.Sources)
