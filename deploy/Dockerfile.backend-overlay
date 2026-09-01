@@ -3,5 +3,6 @@ FROM ${BASE_IMAGE}
 
 ARG TARGETARCH
 COPY grok2api-linux-${TARGETARCH} /app/grok2api
+COPY VERSION /app/VERSION
 
 RUN chmod 0755 /app/grok2api
