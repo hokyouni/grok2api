@@ -1041,7 +1041,15 @@ const (
 
 func (s *Selector) markSuccess(ctx context.Context, credential account.Credential, quotaProbe bool) {
 	now := time.Now().UTC()
-	keepThinkingStrike := isMissingThinkingStrike(credential.LastError)
+	// A thinking strike only survives while its cooldown window is still
+	// open. Once the window has passed and the account delivers a healthy
+	// response again, the strike is stale: clear it so a later isolated
+	// no-reasoning hit starts a fresh cooldown instead of escalating to a
+	// permanent disable. Episodic shape variants (usage-reported reasoning
+	// without streamed text, correct content) must not accumulate across
+	// days of otherwise healthy service.
+	keepThinkingStrike := isMissingThinkingStrike(credential.LastError) &&
+		credential.CooldownUntil != nil && now.Before(*credential.CooldownUntil)
 	healthChanged := credential.FailureCount > 0 || credential.CooldownUntil != nil || credential.LastError != ""
 	touchLastUsed := healthChanged
 	s.selectionMu.Lock()
