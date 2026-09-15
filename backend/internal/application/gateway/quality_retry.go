@@ -63,9 +63,12 @@ type QualityRetryRuntime struct {
 type QualityStreamSignals struct {
 	HasThinking       bool
 	HasReasoningDelta bool
-	// ReasoningStarted is an empty reasoning item or the Chat SSE stub
-	// `: grok2api-reasoning-start`. That is not proof of thinking: 降智
-	// still emits the stub, then dumps visible tokens with usage 0.
+	// HasVisibleText reports that the stream actually emitted text content
+	// (text deltas or message items). VisibleTokens alone cannot prove that:
+	// its usage-derived fallback (output - reasoning) also counts tool-call
+	// structural tokens, so a no-reasoning tool-call-only stub can carry a
+	// nonzero VisibleTokens with zero real text.
+	HasVisibleText  bool
 	ReasoningStarted bool
 	VisibleTokens    int64
 	ReasoningTokens  int64
@@ -254,6 +257,15 @@ func ClassifyQualityHold(sig QualityStreamSignals, minOutput int64) QualityVerdi
 		if enough {
 			return QualityWithhold
 		}
+		if !sig.HasVisibleText {
+			// No thinking and not one observed text rune: the short output is
+			// tool-call/structural tokens only (the usage-derived VisibleTokens
+			// fallback can still carry them past zero). Legitimate short
+			// answers carry visible text; this shape is the upstream
+			// no-reasoning stub and must rotate instead of riding the
+			// short-output exemption to a silent delivery.
+			return QualityWithhold
+		}
 		return QualityDeliver
 	}
 	if enough {
@@ -264,6 +276,9 @@ func ClassifyQualityHold(sig QualityStreamSignals, minOutput int64) QualityVerdi
 			return QualityWait
 		}
 		if enough {
+			return QualityWithhold
+		}
+		if !sig.HasVisibleText {
 			return QualityWithhold
 		}
 		return QualityDeliver

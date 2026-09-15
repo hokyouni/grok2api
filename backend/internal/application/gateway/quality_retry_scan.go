@@ -163,6 +163,7 @@ func (s *qualityScanState) signals() QualityStreamSignals {
 	return QualityStreamSignals{
 		HasThinking:       hasThinking,
 		HasReasoningDelta: s.hasThinking,
+		HasVisibleText:    visibleRunes > 0,
 		ReasoningStarted:  s.reasoningStarted || hasThinking,
 		VisibleTokens:     visible,
 		ReasoningTokens:   reasoningTokens,
