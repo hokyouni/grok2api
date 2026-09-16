@@ -68,18 +68,24 @@ type QualityStreamSignals struct {
 	// its usage-derived fallback (output - reasoning) also counts tool-call
 	// structural tokens, so a no-reasoning tool-call-only stub can carry a
 	// nonzero VisibleTokens with zero real text.
-	HasVisibleText  bool
-	ReasoningStarted bool
-	VisibleTokens    int64
-	ReasoningTokens  int64
-	OutputTokens     int64
-	EncryptedBytes   int
-	EncryptedFloor   int64
-	UsageReported    bool
-	FirstVisible     bool
-	VisibleFlushMS   int64
-	Terminal         bool
-	HoldExpired      bool
+	HasVisibleText bool
+	// ReasoningExpected reports that the request explicitly asked for a
+	// high reasoning effort (high/xhigh/max). A zero-thinking response to
+	// such a request is degraded regardless of output length: the
+	// short-answer exemption exists for terse replies to casual requests,
+	// not for zero-reasoning answers to effortful turns.
+	ReasoningExpected bool
+	ReasoningStarted  bool
+	VisibleTokens     int64
+	ReasoningTokens   int64
+	OutputTokens      int64
+	EncryptedBytes    int
+	EncryptedFloor    int64
+	UsageReported     bool
+	FirstVisible      bool
+	VisibleFlushMS    int64
+	Terminal          bool
+	HoldExpired       bool
 }
 
 // QualityVerdict is the hold decision for one upstream stream.
@@ -257,6 +263,14 @@ func ClassifyQualityHold(sig QualityStreamSignals, minOutput int64) QualityVerdi
 		if enough {
 			return QualityWithhold
 		}
+		// Zero thinking on a request that explicitly asked for a high
+		// reasoning effort is degradation regardless of output length or
+		// content. Observed as short coherent intent statements ("继续打
+		// OA") delivered to xhigh-effort agentic turns during episodic
+		// upstream windows.
+		if sig.ReasoningExpected {
+			return QualityWithhold
+		}
 		if !sig.HasVisibleText {
 			// No thinking and not one observed text rune: the short output is
 			// tool-call/structural tokens only (the usage-derived VisibleTokens
@@ -276,6 +290,9 @@ func ClassifyQualityHold(sig QualityStreamSignals, minOutput int64) QualityVerdi
 			return QualityWait
 		}
 		if enough {
+			return QualityWithhold
+		}
+		if sig.ReasoningExpected {
 			return QualityWithhold
 		}
 		if !sig.HasVisibleText {
@@ -516,6 +533,44 @@ func qualityRequestDisablesReasoning(body []byte) bool {
 		}
 	}
 	return jsonStringEquals(payload["thinking"], "disabled")
+}
+
+// qualityRequestExpectsReasoning reports that the request body explicitly
+// selects a high reasoning effort (high/xhigh/max) in any of the accepted
+// wire forms. Only explicit selections count: requests without an effort
+// field keep the historical short-answer exemptions.
+func qualityRequestExpectsReasoning(body []byte) bool {
+	var payload map[string]json.RawMessage
+	if json.Unmarshal(body, &payload) != nil {
+		return false
+	}
+	if isHighReasoningEffort(jsonNodeRawString(payload["reasoning_effort"])) {
+		return true
+	}
+	for _, key := range []string{"reasoning", "output_config", "thinking"} {
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(payload[key], &nested) != nil {
+			continue
+		}
+		if isHighReasoningEffort(jsonNodeRawString(nested["effort"])) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHighReasoningEffort(effort string) bool {
+	switch strings.ToLower(strings.TrimSpace(effort)) {
+	case modeldomain.ReasoningEffortHigh, modeldomain.ReasoningEffortXHigh, modeldomain.ReasoningEffortMax:
+		return true
+	}
+	return false
+}
+
+func jsonNodeRawString(raw json.RawMessage) string {
+	var value string
+	_ = json.Unmarshal(raw, &value)
+	return value
 }
 
 func jsonStringEquals(raw json.RawMessage, want string) bool {

@@ -28,6 +28,7 @@ type qualityScanState struct {
 	pending                         []byte
 	hasThinking                     bool
 	reasoningStarted                bool
+	reasoningExpected               bool
 	visibleRunes                    int
 	aggregateRunes                  int
 	semanticOutput                  bool
@@ -161,19 +162,20 @@ func (s *qualityScanState) signals() QualityStreamSignals {
 		flushMS = time.Since(s.firstVisibleAt).Milliseconds()
 	}
 	return QualityStreamSignals{
-		HasThinking:       hasThinking,
-		HasReasoningDelta: s.hasThinking,
-		HasVisibleText:    visibleRunes > 0,
-		ReasoningStarted:  s.reasoningStarted || hasThinking,
-		VisibleTokens:     visible,
-		ReasoningTokens:   reasoningTokens,
-		OutputTokens:      output,
-		EncryptedBytes:    s.encryptedBytes,
-		EncryptedFloor:    floor,
-		UsageReported:     s.usage.Reported,
-		FirstVisible:      firstVisible,
-		VisibleFlushMS:    flushMS,
-		Terminal:          s.terminal,
+		HasThinking:        hasThinking,
+		HasReasoningDelta:  s.hasThinking,
+		HasVisibleText:     visibleRunes > 0,
+		ReasoningExpected:  s.reasoningExpected,
+		ReasoningStarted:   s.reasoningStarted || hasThinking,
+		VisibleTokens:      visible,
+		ReasoningTokens:    reasoningTokens,
+		OutputTokens:       output,
+		EncryptedBytes:     s.encryptedBytes,
+		EncryptedFloor:     floor,
+		UsageReported:      s.usage.Reported,
+		FirstVisible:       firstVisible,
+		VisibleFlushMS:     flushMS,
+		Terminal:           s.terminal,
 		HoldExpired:       s.holdExpired,
 	}
 }
@@ -498,7 +500,7 @@ func noteVisibleContent(state *qualityScanState, text string) {
 	state.visibleRunes += utf8.RuneCountInString(text)
 }
 
-func peekQualityStream(ctx context.Context, body io.ReadCloser, protocol string, cfg QualityRetryRuntime) (io.ReadCloser, QualityVerdict, Usage, string, error) {
+func peekQualityStream(ctx context.Context, body io.ReadCloser, protocol string, cfg QualityRetryRuntime, reasoningExpected bool) (io.ReadCloser, QualityVerdict, Usage, string, error) {
 	cfg = normalizeQualityRetry(cfg)
 	if body == nil {
 		return io.NopCloser(bytes.NewReader(nil)), QualityWait, Usage{}, "", errQualityEmptyStream
@@ -506,6 +508,7 @@ func peekQualityStream(ctx context.Context, body io.ReadCloser, protocol string,
 	pump := newQualityReadPump(body)
 	state := qualityScanState{
 		protocol:                        protocol,
+		reasoningExpected:               reasoningExpected,
 		minEncryptedBytes:               cfg.MinEncryptedBytes,
 		encryptedBytesPerReasoningToken: cfg.EncryptedBytesPerReasoningToken,
 	}

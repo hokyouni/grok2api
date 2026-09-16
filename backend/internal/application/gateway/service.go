@@ -1576,7 +1576,7 @@ attemptLoop:
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			s.selector.markSuccess(ctx, credential, lease.QuotaProbe)
 			if qualityHoldEnabled {
-				replay, verdict, peekUsage, _, peekErr := peekQualityStream(ctx, response.Body, qualityProtocolForOperation(operation), holdCfg)
+				replay, verdict, peekUsage, _, peekErr := peekQualityStream(ctx, response.Body, qualityProtocolForOperation(operation), holdCfg, qualityRequestExpectsReasoning(input.Body))
 				if peekErr != nil {
 					if replay != nil {
 						_ = replay.Close()

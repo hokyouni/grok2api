@@ -42,3 +42,56 @@ func TestStubStreamWithholdsEndToEnd(t *testing.T) {
 		t.Fatalf("short text verdict = %s, want deliver (signals: %+v)", got, sig2)
 	}
 }
+
+func TestReasoningExpectedExtraction(t *testing.T) {
+	cases := []struct {
+		body string
+		want bool
+	}{
+		{`{"model":"grok-4.6","reasoning_effort":"xhigh"}`, true},
+		{`{"model":"grok-4.6","reasoning_effort":"high"}`, true},
+		{`{"model":"grok-4.6","reasoning":{"effort":"max"}}`, true},
+		{`{"model":"grok-4.6","reasoning_effort":"low"}`, false},
+		{`{"model":"grok-4.6","reasoning_effort":"none"}`, false},
+		{`{"model":"grok-4.6"}`, false},
+		{`{"model":"grok-4.6","reasoning":{"effort":"medium"}}`, false},
+	}
+	for _, c := range cases {
+		if got := qualityRequestExpectsReasoning([]byte(c.body)); got != c.want {
+			t.Fatalf("qualityRequestExpectsReasoning(%s) = %v, want %v", c.body, got, c.want)
+		}
+	}
+}
+
+// The observed degradation shape: an xhigh-effort agentic request receives a
+// short coherent intent statement ("继续打 OA 和心理系统。") with zero
+// thinking. The stream carries visible text, so the earlier HasVisibleText
+// guard does not apply; only effort-awareness withholds it.
+func TestEffortfulShortIntentStatementWithholds(t *testing.T) {
+	state := &qualityScanState{protocol: qualityProtocolResponses, reasoningExpected: true}
+	fixtures := []string{
+		`data: {"type":"response.created","response":{"id":"resp_1"}}` + "\n",
+		`data: {"type":"response.output_text.delta","delta":"继续打 OA 和心理系统。"}` + "\n",
+		`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":152822,"output_tokens":17,"total_tokens":152839,"output_tokens_details":{"reasoning_tokens":0}}}}` + "\n",
+		"data: [DONE]\n",
+	}
+	for _, f := range fixtures {
+		ObserveQualityChunk(state, []byte(f))
+	}
+	sig := state.signals()
+	if sig.HasThinking || !sig.HasVisibleText || !sig.ReasoningExpected {
+		t.Fatalf("signal misread: %+v", sig)
+	}
+	if got := ClassifyQualityHold(sig, 32); got != QualityWithhold {
+		t.Fatalf("effortful intent-statement verdict = %s, want withhold (signals: %+v)", got, sig)
+	}
+
+	// Same stream on a request without an explicit effort still delivers.
+	state2 := &qualityScanState{protocol: qualityProtocolResponses}
+	for _, f := range fixtures {
+		ObserveQualityChunk(state2, []byte(f))
+	}
+	if got := ClassifyQualityHold(state2.signals(), 32); got != QualityDeliver {
+		t.Fatalf("casual short answer verdict = %s, want deliver", got)
+	}
+}
