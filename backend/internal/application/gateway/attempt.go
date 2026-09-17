@@ -310,9 +310,14 @@ func (r *failureAttemptRecorder) ensureStreamFailureAttempt(credential accountdo
 	})
 }
 
-func (r *failureAttemptRecorder) captureQualityDegraded(credential accountdomain.Credential, startedAt time.Time) {
+// qualityHeldSampleLimit bounds the SSE excerpt kept for a withheld stream.
+// The excerpt is diagnostic evidence for human review of degradation
+// verdicts; the full held prefix is not needed once usage is recorded.
+const qualityHeldSampleLimit = 16 << 10
+
+func (r *failureAttemptRecorder) captureQualityDegraded(credential accountdomain.Credential, startedAt time.Time, heldSample []byte) {
 	status := http.StatusOK
-	r.append(audit.Attempt{
+	attempt := audit.Attempt{
 		Source:             audit.AttemptSourceUpstreamHTTP,
 		Stage:              "quality_hold",
 		AccountID:          auditAccountID(credential.ID),
@@ -324,7 +329,13 @@ func (r *failureAttemptRecorder) captureQualityDegraded(credential accountdomain
 		UpstreamStatusCode: &status,
 		UpstreamStatus:     "200 OK",
 		TransportError:     ErrorQualityDegraded,
-	})
+	}
+	if len(heldSample) > 0 {
+		sample, truncated := r.captureBody(heldSample, len(heldSample) >= qualityHeldSampleLimit)
+		attempt.ResponseBody = sample
+		attempt.ResponseBodyTruncated = truncated
+	}
+	r.append(attempt)
 }
 
 func (r *failureAttemptRecorder) append(attempt audit.Attempt) {

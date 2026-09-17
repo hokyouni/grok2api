@@ -1202,7 +1202,7 @@ func (s *Service) createResponseAt(ctx context.Context, input Input, path string
 		}
 		if recordDegraded {
 			s.recordQualityDegraded(ctx, auditBase, fallback.credential, fallback.usage, startedAt, egressTrace, route.Provider)
-			failureAttempts.captureQualityDegraded(fallback.credential, fallback.upstreamStartedAt)
+			failureAttempts.captureQualityDegraded(fallback.credential, fallback.upstreamStartedAt, nil)
 		}
 		_ = fallback.response.Body.Close()
 		fallback = nil
@@ -1576,7 +1576,7 @@ attemptLoop:
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			s.selector.markSuccess(ctx, credential, lease.QuotaProbe)
 			if qualityHoldEnabled {
-				replay, verdict, peekUsage, _, peekErr := peekQualityStream(ctx, response.Body, qualityProtocolForOperation(operation), holdCfg, qualityRequestExpectsReasoning(input.Body))
+				replay, verdict, peekUsage, _, heldSample, peekErr := peekQualityStream(ctx, response.Body, qualityProtocolForOperation(operation), holdCfg, qualityRequestExpectsReasoning(input.Body))
 				if peekErr != nil {
 					if replay != nil {
 						_ = replay.Close()
@@ -1620,7 +1620,7 @@ attemptLoop:
 				deferFailOpenAudit := commit.Action == QualityActionRetry && holdCfg.OnExhausted == qualityRetryFailOpen
 				if commit.Audit && !deferFailOpenAudit {
 					s.recordQualityDegraded(ctx, auditBase, credential, peekUsage, startedAt, egressTrace, route.Provider)
-					failureAttempts.captureQualityDegraded(credential, responseStartedAt)
+					failureAttempts.captureQualityDegraded(credential, responseStartedAt, heldSample)
 				}
 				switch commit.Action {
 				case QualityActionRetry:

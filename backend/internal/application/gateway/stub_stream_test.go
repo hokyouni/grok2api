@@ -1,6 +1,9 @@
 package gateway
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 // Verifies the full observe->classify path against the real stub shape: a
 // Responses-API stream that carries only a function_call item and usage
@@ -93,5 +96,41 @@ func TestEffortfulShortIntentStatementWithholds(t *testing.T) {
 	}
 	if got := ClassifyQualityHold(state2.signals(), 32); got != QualityDeliver {
 		t.Fatalf("casual short answer verdict = %s, want deliver", got)
+	}
+}
+
+// A withheld stream must surface its held SSE prefix as a diagnostic sample:
+// the human-review pipeline depends on the excerpt being returned.
+func TestWithheldStreamReturnsHeldSample(t *testing.T) {
+	state := &qualityScanState{protocol: qualityProtocolResponses, reasoningExpected: true}
+	fixtures := []string{
+		`data: {"type":"response.created","response":{"id":"resp_1"}}` + "\n",
+		`data: {"type":"response.output_text.delta","delta":"继续打 OA 和心理系统。"}` + "\n",
+		`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":152822,"output_tokens":17,"total_tokens":152839,"output_tokens_details":{"reasoning_tokens":0}}}}` + "\n",
+		"data: [DONE]\n",
+	}
+	var held bytes.Buffer
+	for _, f := range fixtures {
+		held.WriteString(f)
+		ObserveQualityChunk(state, []byte(f))
+	}
+	sig := state.signals()
+	if got := ClassifyQualityHold(sig, 32); got != QualityWithhold {
+		t.Fatalf("verdict = %s, want withhold", got)
+	}
+	sample := heldSampleBytes(&held)
+	if len(sample) == 0 {
+		t.Fatal("heldSampleBytes returned empty for a withheld stream")
+	}
+	if !bytes.Contains(sample, []byte("继续打 OA")) {
+		t.Fatalf("sample does not contain the response text: %q", sample)
+	}
+
+	// Bound: a huge held prefix is capped at the diagnostic limit.
+	var big bytes.Buffer
+	big.Write(bytes.Repeat([]byte("x"), qualityHeldSampleLimit+4096))
+	capped := heldSampleBytes(&big)
+	if len(capped) != qualityHeldSampleLimit {
+		t.Fatalf("capped sample = %d bytes, want %d", len(capped), qualityHeldSampleLimit)
 	}
 }
