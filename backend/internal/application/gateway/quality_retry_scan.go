@@ -500,14 +500,17 @@ func noteVisibleContent(state *qualityScanState, text string) {
 
 
 // heldSampleBytes copies a bounded SSE excerpt of the held prefix for
-// diagnostic capture on withheld streams.
+// diagnostic capture on withheld streams. Large requests carry a
+// response.created preamble that alone exceeds the limit; the diagnostic
+// value (text/reasoning deltas, usage) arrives at the tail, so keep the
+// LAST bytes and mark the excerpt as head-truncated.
 func heldSampleBytes(held *bytes.Buffer) []byte {
 	if held == nil || held.Len() == 0 {
 		return nil
 	}
 	data := held.Bytes()
 	if len(data) > qualityHeldSampleLimit {
-		data = data[:qualityHeldSampleLimit]
+		data = data[len(data)-qualityHeldSampleLimit:]
 	}
 	out := make([]byte, len(data))
 	copy(out, data)

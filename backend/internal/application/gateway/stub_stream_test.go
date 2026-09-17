@@ -126,11 +126,16 @@ func TestWithheldStreamReturnsHeldSample(t *testing.T) {
 		t.Fatalf("sample does not contain the response text: %q", sample)
 	}
 
-	// Bound: a huge held prefix is capped at the diagnostic limit.
+	// Bound: a huge held prefix keeps the TAIL (deltas and usage arrive
+	// last; the response.created preamble alone can exceed the limit).
 	var big bytes.Buffer
 	big.Write(bytes.Repeat([]byte("x"), qualityHeldSampleLimit+4096))
+	big.WriteString("TAIL-MARKER")
 	capped := heldSampleBytes(&big)
 	if len(capped) != qualityHeldSampleLimit {
 		t.Fatalf("capped sample = %d bytes, want %d", len(capped), qualityHeldSampleLimit)
+	}
+	if !bytes.HasSuffix(capped, []byte("TAIL-MARKER")) {
+		t.Fatal("capped sample must keep the tail of the held prefix")
 	}
 }
